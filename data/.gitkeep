@@ -1,0 +1,1 @@
+Gitignored except val_slice.json / calib_slice.json (see PLAN.md §3). Images and annotation JSONs are fetched by export/download_coco_slice.py, not committed.

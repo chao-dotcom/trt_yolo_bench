@@ -1,0 +1,12 @@
+# Export / engine-building (Python side) — requires a CUDA-enabled machine
+# with a matching TensorRT install for the tensorrt/pycuda lines. See PLAN.md
+# §0 and §5 — none of this installs or runs on a GPU-less machine.
+
+ultralytics>=8.3          # YOLO11n model + ONNX export
+onnx>=1.16
+tensorrt                  # Builder API + Python runtime for calibration/sanity checks (CUDA box only)
+pycuda                    # or cuda-python, whichever pairs cleanly with the TensorRT version installed
+numpy
+opencv-python
+pycocotools
+requests                  # export/download_coco_slice.py

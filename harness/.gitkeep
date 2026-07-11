@@ -1,0 +1,1 @@
+Not yet implemented — see PLAN.md §4 for the exact C++ harness spec (engine loading, letterbox preprocessing, hand-written YOLO decode + NMS, benchmark timing) and §9 for the intended CMake-based layout.

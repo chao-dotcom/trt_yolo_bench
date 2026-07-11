@@ -1,0 +1,1 @@
+Not yet implemented — see PLAN.md §6 for score_coco.py's spec (pycocotools scoring of the harness's COCO-format output against the real val2017 slice).
