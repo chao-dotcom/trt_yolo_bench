@@ -5,6 +5,9 @@ data/*.json
 !data/calib_slice.json
 data/annotations_trainval2017.zip
 data/instances_*.json
+data/train2017/
+data/val2017/
+*.pt
 
 # Exported models / engines (regenerate via export/, don't commit large binaries)
 *.onnx
