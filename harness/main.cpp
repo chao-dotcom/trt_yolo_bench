@@ -412,44 +412,45 @@ int main(int argc, char** argv) {
 
     nvinfer1::ICudaEngine* engine = runtime->deserializeCudaEngine(engine_data.data(), engine_data.size());
     if (engine == nullptr) {
-      runtime->destroy();
+      delete runtime;
       throw std::runtime_error("Failed to deserialize TensorRT engine");
     }
 
     nvinfer1::IExecutionContext* context = engine->createExecutionContext();
     if (context == nullptr) {
-      engine->destroy();
-      runtime->destroy();
+      delete engine;
+      delete runtime;
       throw std::runtime_error("Failed to create execution context");
     }
 
-    if (engine->getNbBindings() != 2) {
-      std::cerr << "[warn] expected 2 bindings (input/output), got " << engine->getNbBindings() << "\n";
+    if (engine->getNbIOTensors() != 2) {
+      std::cerr << "[warn] expected 2 I/O tensors (input/output), got " << engine->getNbIOTensors() << "\n";
     }
 
-    int input_idx = -1;
-    int output_idx = -1;
-    for (int i = 0; i < engine->getNbBindings(); ++i) {
-      if (engine->bindingIsInput(i)) {
-        input_idx = i;
+    std::string input_name;
+    std::string output_name;
+    for (int i = 0; i < engine->getNbIOTensors(); ++i) {
+      const char* name = engine->getIOTensorName(i);
+      if (engine->getTensorIOMode(name) == nvinfer1::TensorIOMode::kINPUT) {
+        input_name = name;
       } else {
-        output_idx = i;
+        output_name = name;
       }
     }
-    if (input_idx < 0 || output_idx < 0) {
-      throw std::runtime_error("Failed to identify input/output bindings");
+    if (input_name.empty() || output_name.empty()) {
+      throw std::runtime_error("Failed to identify input/output tensors");
     }
 
-    nvinfer1::Dims input_dims = engine->getBindingDimensions(input_idx);
+    nvinfer1::Dims input_dims = engine->getTensorShape(input_name.c_str());
     if (input_dims.nbDims == 4 && input_dims.d[0] == -1) {
       input_dims.d[0] = 1;
-      if (!context->setBindingDimensions(input_idx, input_dims)) {
+      if (!context->setInputShape(input_name.c_str(), input_dims)) {
         throw std::runtime_error("Failed to set dynamic input dimensions");
       }
     }
 
-    const nvinfer1::Dims resolved_input_dims = context->getBindingDimensions(input_idx);
-    const nvinfer1::Dims resolved_output_dims = context->getBindingDimensions(output_idx);
+    const nvinfer1::Dims resolved_input_dims = context->getTensorShape(input_name.c_str());
+    const nvinfer1::Dims resolved_output_dims = context->getTensorShape(output_name.c_str());
     const size_t input_elems = NumElements(resolved_input_dims);
     const size_t output_elems = NumElements(resolved_output_dims);
 
@@ -477,9 +478,10 @@ int main(int argc, char** argv) {
     cudaStream_t stream = nullptr;
     CheckCuda(cudaStreamCreate(&stream), "cudaStreamCreate failed");
 
-    std::vector<void*> bindings(engine->getNbBindings(), nullptr);
-    bindings[input_idx] = device_input;
-    bindings[output_idx] = device_output;
+    if (!context->setTensorAddress(input_name.c_str(), device_input) ||
+        !context->setTensorAddress(output_name.c_str(), device_output)) {
+      throw std::runtime_error("Failed to set tensor addresses");
+    }
 
     std::vector<SliceRecord> records = ParseSliceJson(cfg.slice_json);
     if (cfg.max_images > 0 && static_cast<int>(records.size()) > cfg.max_images) {
@@ -513,8 +515,8 @@ int main(int argc, char** argv) {
       CheckCuda(cudaMemcpyAsync(device_input, cached_inputs[idx].data(), input_elems * sizeof(float),
                                 cudaMemcpyHostToDevice, stream),
                 "Warmup H2D failed");
-      if (!context->enqueueV2(bindings.data(), stream, nullptr)) {
-        throw std::runtime_error("enqueueV2 failed during warmup");
+      if (!context->enqueueV3(stream)) {
+        throw std::runtime_error("enqueueV3 failed during warmup");
       }
       CheckCuda(cudaStreamSynchronize(stream), "Warmup synchronize failed");
     }
@@ -528,8 +530,8 @@ int main(int argc, char** argv) {
                 "Benchmark H2D failed");
 
       const auto start = std::chrono::high_resolution_clock::now();
-      if (!context->enqueueV2(bindings.data(), stream, nullptr)) {
-        throw std::runtime_error("enqueueV2 failed during benchmark");
+      if (!context->enqueueV3(stream)) {
+        throw std::runtime_error("enqueueV3 failed during benchmark");
       }
       CheckCuda(cudaStreamSynchronize(stream), "Benchmark synchronize failed");
       const auto end = std::chrono::high_resolution_clock::now();
@@ -564,8 +566,8 @@ int main(int argc, char** argv) {
       CheckCuda(cudaMemcpyAsync(device_input, input.data(), input_elems * sizeof(float),
                                 cudaMemcpyHostToDevice, stream),
                 "Eval H2D failed");
-      if (!context->enqueueV2(bindings.data(), stream, nullptr)) {
-        throw std::runtime_error("enqueueV2 failed during eval");
+      if (!context->enqueueV3(stream)) {
+        throw std::runtime_error("enqueueV3 failed during eval");
       }
       CheckCuda(cudaMemcpyAsync(host_output.data(), device_output, output_elems * sizeof(float),
                                 cudaMemcpyDeviceToHost, stream),
@@ -584,9 +586,9 @@ int main(int argc, char** argv) {
     cudaStreamDestroy(stream);
     cudaFree(device_output);
     cudaFree(device_input);
-    context->destroy();
-    engine->destroy();
-    runtime->destroy();
+    delete context;
+    delete engine;
+    delete runtime;
 
     return 0;
   } catch (const std::exception& ex) {
