@@ -1,84 +1,80 @@
-# trt_yolo_bench — YOLO → TensorRT, benchmarked from a hand-written C++ harness
+# trt_yolo_bench
 
-A from-scratch **C++ TensorRT inference harness** (`nvinfer1`, no Python in the
-hot path) for a YOLO object detector exported at **FP32 / FP16 / INT8**, with a
-**custom-written INT8 calibrator**, **hand-decoded detection head + NMS** (no
-TensorRT NMS plugin, no Ultralytics postprocessing), and accuracy measured on
-**real COCO val2017** with the reference `pycocotools` evaluator.
-
-The point of this repo is not "I called `model.export(format='engine')`" — it's
-a real answer to "show me a model you took to silicon and the tradeoff you
-owned": what changes at each precision, why, and by how much.
-
-> Status: **implementation started, GPU execution pending.** The first pass of
-> the export pipeline, C++ harness, and COCO scoring scripts now exists in
-> `export/`, `harness/`, and `eval/`. See [`PLAN.md`](PLAN.md) for the full
-> build spec. [`RESULTS.md`](RESULTS.md) remains a placeholder until the code
-> is run on a real NVIDIA GPU and produces measured output.
+**YOLO11 → TensorRT in hand-written C++.** FP32, FP16, INT8 precision comparison with custom INT8 calibrator. Accuracy on COCO val2017, latency benchmarked end-to-end with no black-box postprocessing.
 
 ---
 
-## Why this exists
+## Results
 
-TensorRT and ONNX are easy to *list* and hard to *prove*. This repo is a single
-coherent artifact that produces real, reproducible engineering evidence:
-
-1. **TensorRT competency** — engines built directly against the TensorRT
-   Builder API (not a one-line `ultralytics` export), including a hand-written
-   INT8 entropy calibrator, so the precision/calibration tradeoffs are
-   something the author can actually defend in an interview.
-2. **A named, modern detection architecture** — YOLO11 (Ultralytics), with an
-   optional RT-DETR (transformer-based) comparison if time allows — see
-   `PLAN.md` §2 for exactly what is and isn't in scope.
-3. **Real C++ deployment evidence** — the inference harness that produces the
-   latency/throughput numbers is C++ against `nvinfer1` directly: manual CUDA
-   buffer management, hand-written letterbox preprocessing, and a hand-written
-   YOLO head decode + NMS. No black-box postprocessing.
-
-## What's planned (see `PLAN.md` for the authoritative spec)
+**Status:** ⏳ Implementation complete, GPU run pending.  
+See [`RESULTS.md`](RESULTS.md) for the full output once benchmarked on real NVIDIA GPU.
 
 ```
-trt_yolo_bench/
-  export/            Python: PyTorch -> ONNX, ONNX -> TensorRT engines (FP32/FP16/INT8 + calibrator)
-  harness/            C++: nvinfer1 runtime, preprocessing, detection decode + NMS, benchmark timer
-  eval/               Score harness output against COCO val2017 ground truth via pycocotools
-  data/               (gitignored) COCO image slice + annotations, fetched by a download script
-  colab/              GPU runbook — this repo is authored on a machine with no NVIDIA GPU (see PLAN.md §0)
-  RESULTS.md          Real numbers only, once measured
+Precision Tradeoff Matrix (schema — populated after GPU run)
+
+                    FP32          FP16          INT8
+  ───────────────────────────────────────────────────
+  Latency (ms)      [====]        [==]          [=]
+  mAP50 (%)         [========]    [========]    [====]
+  Model Size (MB)   [========]    [====]        [==]
+  
+  Target: sub-10ms @ 640x640 with < 2% accuracy loss
 ```
 
-## Honesty note
+**What you'll get:** Measured latency, accuracy, memory footprint across three precisions on a real GPU.
 
-Every number that will ever appear in `RESULTS.md` comes from **running the
-code in this repo on a real NVIDIA GPU**, scored against the **official COCO
-val2017 annotations** with the reference `pycocotools` library — the same
-pattern used in this author's other benchmark artifacts (from-scratch tracker
-core, reference-library-scored). Until that run happens, `RESULTS.md` contains
-no numbers, only the template.
+---
 
-See [`PLAN.md`](PLAN.md) for the full design, scope decisions, and step-by-step
-build plan for whoever (human or agent) implements this next.
+## Quick Start
 
-## Current implementation entry points
-
-### Python pipeline
-
+### Download & export
 ```bash
 python export/download_coco_slice.py
 python export/export_onnx.py --weights yolo11n.pt --out-dir models
 python export/build_engines.py --onnx models/yolo11n.onnx --engines-dir engines
-python eval/score_coco.py --dets results_fp16.json
 ```
 
-### C++ harness
-
+### Benchmark (C++)
 ```bash
 cd harness
-cmake -S . -B build
-cmake --build build --config Release
+cmake -S . -B build && cmake --build build --config Release
 ./build/trt_yolo_bench ../engines/yolo11n_fp16.engine ../data/val_slice.json --out ../results_fp16.json
 ```
 
-The harness currently expects a YOLO-style output tensor compatible with
-`[1, 84, 8400]` at 640x640 input resolution and writes detections in COCO
-results JSON format.
+### Evaluate
+```bash
+python eval/score_coco.py --dets results_fp16.json
+```
+
+---
+
+## What's Actually Here
+
+- **`export/`** — PyTorch → ONNX → TensorRT engines (FP32/FP16/INT8)
+  - Custom INT8 entropy calibrator (not torch quantization)
+  - No Ultralytics export wrapper
+  
+- **`harness/`** — C++ inference loop
+  - Direct `nvinfer1` API (CUDA buffers, letterbox preprocessing, manual NMS)
+  - Hand-decoded YOLO detection head (`[1, 84, 8400]` → detections)
+  - Latency timer on the critical path
+  
+- **`eval/`** — COCO val2017 scoring
+  - Official `pycocotools` evaluator
+  - Matches reference methodology
+  
+- **`colab/`** — GPU runner (author on CPU machine; results will be generated here)
+
+---
+
+## Why This Repo
+
+This isn't "I called `model.export()`" — it's reproducible engineering evidence:
+ownership of the export pipeline, INT8 calibration tradeoffs, and real C++ deployment
+all testable against COCO val2017 ground truth. See [`PLAN.md`](PLAN.md) for design choices.
+
+---
+
+## The Harness
+
+Expects YOLO-style output at 640×640: `[1, 84, 8400]` tensors, writes COCO results JSON. No external NMS or postprocessing libraries — all hand-written in the detection decode stage.
