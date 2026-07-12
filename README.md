@@ -10,11 +10,11 @@ The point of this repo is not "I called `model.export(format='engine')`" — it'
 a real answer to "show me a model you took to silicon and the tradeoff you
 owned": what changes at each precision, why, and by how much.
 
-> Status: **planning complete, implementation pending.** See [`PLAN.md`](PLAN.md)
-> for the full build plan. [`RESULTS.md`](RESULTS.md) is a placeholder — every
-> number in it will say `PENDING` until produced by actually running this code.
-> No numbers are invented ahead of the run, ever — see the Honesty rules in
-> `PLAN.md` §7.
+> Status: **implementation started, GPU execution pending.** The first pass of
+> the export pipeline, C++ harness, and COCO scoring scripts now exists in
+> `export/`, `harness/`, and `eval/`. See [`PLAN.md`](PLAN.md) for the full
+> build spec. [`RESULTS.md`](RESULTS.md) remains a placeholder until the code
+> is run on a real NVIDIA GPU and produces measured output.
 
 ---
 
@@ -58,3 +58,27 @@ no numbers, only the template.
 
 See [`PLAN.md`](PLAN.md) for the full design, scope decisions, and step-by-step
 build plan for whoever (human or agent) implements this next.
+
+## Current implementation entry points
+
+### Python pipeline
+
+```bash
+python export/download_coco_slice.py
+python export/export_onnx.py --weights yolo11n.pt --out-dir models
+python export/build_engines.py --onnx models/yolo11n.onnx --engines-dir engines
+python eval/score_coco.py --dets results_fp16.json
+```
+
+### C++ harness
+
+```bash
+cd harness
+cmake -S . -B build
+cmake --build build --config Release
+./build/trt_yolo_bench ../engines/yolo11n_fp16.engine ../data/val_slice.json --out ../results_fp16.json
+```
+
+The harness currently expects a YOLO-style output tensor compatible with
+`[1, 84, 8400]` at 640x640 input resolution and writes detections in COCO
+results JSON format.
