@@ -43,11 +43,3 @@ cmake -S . -B build && cmake --build build --config Release
 # Evaluate accuracy
 python eval/score_coco.py --dets results.json
 ```
-
----
-
-## What This Demonstrates
-
-- **TensorRT deployment competency** — engines built directly against Builder API with custom INT8 calibration
-- **Production C++ inference** — manual CUDA, preprocessing, and postprocessing; benchmarked end-to-end
-- **Reproducible evaluation** — accuracy measured against official COCO annotations with reference tooling
